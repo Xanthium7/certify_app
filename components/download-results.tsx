@@ -14,6 +14,9 @@ export default function DownloadResults({
   onReset,
 }: DownloadResultsProps) {
   const [isDownloading, setIsDownloading] = useState(false);
+  const [conversionStatus, setConversionStatus] = useState<{
+    [key: string]: "idle" | "processing" | "error";
+  }>({});
 
   const handleDownloadAll = async () => {
     setIsDownloading(true);
@@ -48,75 +51,140 @@ export default function DownloadResults({
     }
   };
 
-  const handleDownloadSingle = (
-    fileName: string,
-    content: string,
-    format: "svg" | "png" = "png"
-  ) => {
-    if (format === "svg") {
-      // Direct SVG download
-      const blob = new Blob([content], { type: "image/svg+xml" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      return;
-    }
-
-    // Convert SVG to PNG
+  const handleDownloadSvg = (fileName: string, content: string) => {
+    // Direct SVG download
     const blob = new Blob([content], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    const img = new Image();
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
-    // Handle conversion errors
-    const handleError = () => {
-      console.error("Failed to convert SVG to PNG");
-      URL.revokeObjectURL(url);
-      // Fallback to SVG download
-      handleDownloadSingle(fileName, content, "svg");
-    };
+  const handleDownloadPng = async (
+    fileName: string,
+    content: string,
+    index: number
+  ) => {
+    // Set status to processing for this file
+    setConversionStatus((prev) => ({ ...prev, [index]: "processing" }));
 
-    img.onload = () => {
-      try {
-        // Set canvas dimensions to match SVG
-        canvas.width = img.width || 800; // Fallback size if width is 0
-        canvas.height = img.height || 600; // Fallback size if height is 0
+    try {
+      // Create a container for the SVG
+      const container = document.createElement("div");
+      container.style.position = "absolute";
+      container.style.top = "-9999px";
+      container.style.left = "-9999px";
+      container.innerHTML = content;
+      document.body.appendChild(container);
 
-        // Draw image on canvas
-        if (ctx) {
-          ctx.drawImage(img, 0, 0);
+      // Wait for the SVG to render
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
-          // Convert canvas to PNG
-          const pngUrl = canvas.toDataURL("image/png");
+      // Get the SVG element
+      const svgElement = container.querySelector("svg");
 
-          // Create download link for PNG
-          const link = document.createElement("a");
-          link.href = pngUrl;
-          link.download = fileName.replace(".svg", ".png");
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        } else {
-          handleError();
-        }
-      } catch (error) {
-        handleError();
-      } finally {
-        // Clean up
-        URL.revokeObjectURL(url);
+      if (!svgElement) {
+        throw new Error("SVG element not found");
       }
-    };
 
-    img.onerror = handleError;
+      // Get dimensions
+      const bbox = svgElement.getBBox();
+      const width = bbox.width || svgElement.width?.baseVal?.value || 800;
+      const height = bbox.height || svgElement.height?.baseVal?.value || 600;
 
-    // Set image source to SVG blob
-    img.src = url;
+      // Serialize SVG with dimensions
+      const serializer = new XMLSerializer();
+      let svgString = serializer.serializeToString(svgElement);
+
+      // Ensure SVG has proper width and height
+      if (!svgString.includes("width=")) {
+        svgString = svgString.replace("<svg", `<svg width="${width}"`);
+      }
+      if (!svgString.includes("height=")) {
+        svgString = svgString.replace("<svg", `<svg height="${height}"`);
+      }
+
+      // Create SVG data URL
+      const svgBlob = new Blob([svgString], {
+        type: "image/svg+xml;charset=utf-8",
+      });
+      const svgUrl = URL.createObjectURL(svgBlob);
+
+      // Clean up container
+      document.body.removeChild(container);
+
+      // Convert to PNG using an Image and canvas
+      return new Promise<void>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            // Create canvas with proper dimensions
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width;
+            canvas.height = img.height;
+
+            // Draw SVG on canvas
+            const ctx = canvas.getContext("2d");
+            if (!ctx) {
+              throw new Error("Could not get canvas context");
+            }
+
+            ctx.drawImage(img, 0, 0);
+
+            // Convert to PNG and download
+            canvas.toBlob((blob) => {
+              if (!blob) {
+                throw new Error("Could not create PNG blob");
+              }
+
+              const pngUrl = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = pngUrl;
+              link.download = fileName.replace(".svg", ".png");
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+
+              // Clean up
+              URL.revokeObjectURL(pngUrl);
+              URL.revokeObjectURL(svgUrl);
+              setConversionStatus((prev) => ({ ...prev, [index]: "idle" }));
+              resolve();
+            }, "image/png");
+          } catch (error) {
+            console.error("Error converting SVG to PNG:", error);
+            URL.revokeObjectURL(svgUrl);
+            setConversionStatus((prev) => ({ ...prev, [index]: "error" }));
+            reject(error);
+
+            // Fallback to SVG download
+            handleDownloadSvg(fileName, content);
+          }
+        };
+
+        img.onerror = (error) => {
+          console.error("Error loading SVG:", error);
+          URL.revokeObjectURL(svgUrl);
+          setConversionStatus((prev) => ({ ...prev, [index]: "error" }));
+          reject(error);
+
+          // Fallback to SVG download
+          handleDownloadSvg(fileName, content);
+        };
+
+        img.src = svgUrl;
+      });
+    } catch (error) {
+      console.error("Error in SVG to PNG conversion:", error);
+      setConversionStatus((prev) => ({ ...prev, [index]: "error" }));
+
+      // Fallback to SVG download
+      handleDownloadSvg(fileName, content);
+    }
   };
 
   return (
@@ -157,18 +225,19 @@ export default function DownloadResults({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    handleDownloadSingle(file.name, file.content, "svg")
-                  }
+                  onClick={() => handleDownloadSvg(file.name, file.content)}
                 >
                   SVG
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => handleDownloadSingle(file.name, file.content)}
+                  disabled={conversionStatus[i] === "processing"}
+                  onClick={() => handleDownloadPng(file.name, file.content, i)}
                 >
-                  PNG
+                  {conversionStatus[i] === "processing"
+                    ? "Converting..."
+                    : "PNG"}
                 </Button>
               </div>
             </div>

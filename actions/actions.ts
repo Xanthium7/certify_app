@@ -61,7 +61,7 @@ export async function ai_slop(imagePath: string) {
     }
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-2.5-pro-exp-03-25",
       config: {
         systemInstruction,
       },
