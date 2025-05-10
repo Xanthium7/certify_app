@@ -81,7 +81,6 @@ export async function ai_slop(imagePath: string) {
   } catch (error) {
     console.error("Error processing image:", error);
 
-    // Clean up temp directory even if there's an error
     try {
       deleteDirectory(tempDir);
     } catch (cleanupError) {
