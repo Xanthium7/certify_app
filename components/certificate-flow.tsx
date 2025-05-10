@@ -9,6 +9,7 @@ import CustomizeCertificate from "@/components/customize-certificate";
 import BatchProcess from "@/components/batch-process";
 import DownloadResults from "@/components/download-results";
 import Image from "next/image";
+import { ai_slop } from "@/actions/actions";
 
 const steps = ["upload", "customize", "batch", "download"];
 
@@ -24,12 +25,11 @@ export default function CertificateFlow() {
   const handleImageUpload = (imageUrl: string) => {
     setCertificateImage(imageUrl);
     console.log("Received image URL:", imageUrl);
+    ai_slop_handler(imageUrl);
 
     // Simulate AI processing - in real app, this would call your AI endpoint
     setIsProcessing(true);
     setTimeout(() => {
-      // Example SVG code - this would come from your AI service
-      // ...existing code...
       const placeholderSvg = `<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
 <defs>
   <radialGradient id="bgGrad" cx="50%" cy="50%" r="80%">
@@ -57,9 +57,15 @@ export default function CertificateFlow() {
 
       setSvgCode(placeholderSvg);
       setCustomizedSvg(placeholderSvg);
+
       setIsProcessing(false);
       setCurrentStep(1);
     }, 2000);
+  };
+
+  const ai_slop_handler = async (imagePath: string) => {
+    const response = await ai_slop(imagePath);
+    setSvgCode(response || null);
   };
 
   const handleCustomization = (updatedSvg: string) => {
