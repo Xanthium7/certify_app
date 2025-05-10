@@ -20,7 +20,9 @@ export default function CertificateFlow() {
   const [customizedSvg, setCustomizedSvg] = useState<string | null>(null);
   const [batchData, setBatchData] = useState<string[][]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [generatedFiles, setGeneratedFiles] = useState<string[]>([]);
+  const [generatedFiles, setGeneratedFiles] = useState<
+    Array<{ name: string; content: string }>
+  >([]);
 
   const handleImageUpload = (imageUrl: string) => {
     setCertificateImage(imageUrl);
@@ -58,10 +60,22 @@ export default function CertificateFlow() {
     // Simulate batch processing - in real app, this would call your backend
     setIsProcessing(true);
     setTimeout(() => {
-      // Simulate generated files
-      setGeneratedFiles(
-        data.map((row, i) => `certificate_${row[0].replace(/\s+/g, "_")}.svg`)
-      );
+      // Generate files with both name and SVG content
+      const files = data.map((row, i) => {
+        const filename = `certificate_${row[0].replace(/\s+/g, "_")}.svg`;
+        // Replace placeholder values in the SVG with data from the CSV
+        let svgWithData = customizedSvg || "";
+        row.forEach((value, index) => {
+          // Replace {{index}} placeholders with actual values
+          svgWithData = svgWithData.replace(
+            new RegExp(`\\{\\{${index}\\}\\}`, "g"),
+            value
+          );
+        });
+        return { name: filename, content: svgWithData };
+      });
+
+      setGeneratedFiles(files);
       setIsProcessing(false);
       setCurrentStep(3);
     }, 2000);
